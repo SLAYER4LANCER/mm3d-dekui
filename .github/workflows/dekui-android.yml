@@ -1,0 +1,97 @@
+# Put this file at .github/workflows/dekui-android.yml in YOUR FORK of
+# https://github.com/tgacquin/mm3d-dekui, then open the Actions tab and run
+# "Dekui Android" (workflow_dispatch). The APK appears under "Artifacts".
+#
+# UNTESTED: written from the repo's own Gradle options (-PdekuiPresentation,
+# -PdekuiQtRoot, -PdekuiQtHost). Expect to fix errors on the first runs.
+name: Dekui Android
+on:
+  workflow_dispatch:
+    inputs:
+      qt_version:
+        description: Qt version (must exist for both android_arm64_v8a and linux_gcc_64)
+        default: '6.8.3'
+permissions:
+  contents: read
+concurrency:
+  group: dekui-android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Host Qt (build tools such as moc/rcc run on the runner).
+      - name: Install host Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ inputs.qt_version }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          dir: ${{ runner.temp }}/qt
+          set-env: false
+          cache: true
+
+      # Target Qt for Android arm64 (the project only links Qt Core).
+      - name: Install Android Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ inputs.qt_version }}
+          host: linux
+          target: android
+          arch: android_arm64_v8a
+          dir: ${{ runner.temp }}/qt
+          set-env: false
+          cache: true
+
+      - name: Install NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.3.13750724" "platforms;android-35" "build-tools;35.0.0" "cmake;3.31.6"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Show Qt paths
+        run: |
+          ls "${{ runner.temp }}/qt/Qt/${{ inputs.qt_version }}" || ls "${{ runner.temp }}/qt/${{ inputs.qt_version }}"
+
+      - name: Build APK
+        working-directory: src/android
+        run: |
+          QT_BASE="${{ runner.temp }}/qt/Qt/${{ inputs.qt_version }}"
+          [ -d "$QT_BASE" ] || QT_BASE="${{ runner.temp }}/qt/${{ inputs.qt_version }}"
+          chmod +x ./gradlew
+          ./gradlew assembleVanillaRelease \
+            -PdekuiPresentation=true \
+            -PdekuiQtRoot="$QT_BASE/android_arm64_v8a" \
+            -PdekuiQtHost="$QT_BASE/gcc_64" \
+            --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          find src/android/app/build/outputs/apk -name '*.apk' -exec cp {} out/ \;
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dekui-android-apk
+          path: out/*.apk
+          if-no-files-found: error
