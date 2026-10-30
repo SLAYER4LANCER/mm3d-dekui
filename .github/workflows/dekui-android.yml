@@ -36,29 +36,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Host Qt (build tools such as moc/rcc run on the runner).
-      - name: Install host Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ inputs.qt_version }}
-          host: linux
-          target: desktop
-          arch: linux_gcc_64
-          dir: ${{ runner.temp }}/qt
-          set-env: false
-          cache: true
-
-      # Target Qt for Android arm64 (the project only links Qt Core).
-      - name: Install Android Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ inputs.qt_version }}
-          host: linux
-          target: android
-          arch: android_arm64_v8a
-          dir: ${{ runner.temp }}/qt
-          set-env: false
-          cache: true
+      # Install Qt directly with the newest aqtinstall (the install-qt-action
+      # bundles an old one that cannot list Android packages).
+      - name: Install Qt (host + Android arm64)
+        env:
+          QTV: ${{ inputs.qt_version }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/aqt-venv"
+          "$RUNNER_TEMP/aqt-venv/bin/pip" install --upgrade pip aqtinstall
+          AQT="$RUNNER_TEMP/aqt-venv/bin/aqt"
+          "$AQT" version
+          echo "--- Qt versions offered for linux/android:"
+          "$AQT" list-qt linux android || true
+          echo "--- Android archs for $QTV:"
+          "$AQT" list-qt linux android --arch "$QTV" || true
+          "$AQT" install-qt linux desktop "$QTV" linux_gcc_64 -O "$RUNNER_TEMP/qt"
+          "$AQT" install-qt linux android "$QTV" android_arm64_v8a -O "$RUNNER_TEMP/qt"
+          ls "$RUNNER_TEMP/qt/$QTV"
 
       - name: Install NDK and CMake
         run: |
