@@ -61,6 +61,9 @@ jobs:
             "ndk;27.3.13750724" "platforms;android-35" "build-tools;35.0.0" "cmake;3.31.6"
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # A bundled SDL2 submodule ships a wrapper jar the validator rejects; unrelated to this build.
+          validate-wrappers: false
 
       - name: Show Qt paths
         run: |
