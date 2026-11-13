@@ -102,6 +102,58 @@ jobs:
           print("patched", path)
           PY
 
+      - name: Allow the cutout (notch) setting to be changed in-game
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/android/app/src/main/java/org/citra/citra_emu/features/settings/model/BooleanSetting.kt")
+          s = p.read_text()
+          old = "            APPLY_REGION_FREE_PATCH,\n            EXPAND_TO_CUTOUT_AREA\n"
+          new = "            APPLY_REGION_FREE_PATCH\n"
+          if old in s:
+              p.write_text(s.replace(old, new)); print("patched", p)
+          elif "EXPAND_TO_CUTOUT_AREA\n        )" not in s:
+              print("already patched")
+          else:
+              raise SystemExit("source changed; patch does not apply")
+          PY
+
+      - name: Fill the screen by default (stretch + notch area)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path("src/android/app/src/main")
+
+          def edit(rel, old, new, marker):
+              p = base / rel
+              s = p.read_text()
+              if marker in s:
+                  print("already patched", rel); return
+              assert s.count(old) == 1, "source changed; patch does not apply: " + rel
+              p.write_text(s.replace(old, new)); print("patched", rel)
+
+          # Native: when aspect ratio is "Default", use Stretch instead (other choices still work).
+          edit("jni/config.cpp",
+               '    ReadSetting("Layout", Settings::values.aspect_ratio);\n',
+               '    ReadSetting("Layout", Settings::values.aspect_ratio);\n'
+               '#ifdef ENABLE_MM3D_PRESENTATION\n'
+               '    if (Settings::values.aspect_ratio.GetValue() == Settings::AspectRatio::Default) {\n'
+               '        Settings::values.aspect_ratio = Settings::AspectRatio::Stretch;\n'
+               '    }\n'
+               '#endif\n',
+               "AspectRatio::Stretch;")
+
+          # Kotlin: always draw into the notch/cutout area in this build.
+          edit("java/org/citra/citra_emu/activities/EmulationActivity.kt",
+               "            if (BooleanSetting.EXPAND_TO_CUTOUT_AREA.boolean) {\n",
+               "            if (org.citra.citra_emu.BuildConfig.DEKUI_PRESENTATION || BooleanSetting.EXPAND_TO_CUTOUT_AREA.boolean) {\n",
+               "BuildConfig.DEKUI_PRESENTATION || BooleanSetting.EXPAND")
+          edit("java/org/citra/citra_emu/fragments/EmulationFragment.kt",
+               "        if (!BooleanSetting.EXPAND_TO_CUTOUT_AREA.boolean) {\n",
+               "        if (!(org.citra.citra_emu.BuildConfig.DEKUI_PRESENTATION || BooleanSetting.EXPAND_TO_CUTOUT_AREA.boolean)) {\n",
+               "BuildConfig.DEKUI_PRESENTATION || BooleanSetting.EXPAND")
+          PY
+
       - name: Build APK
         working-directory: src/android
         run: |
