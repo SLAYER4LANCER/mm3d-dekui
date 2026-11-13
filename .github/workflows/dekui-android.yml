@@ -69,6 +69,39 @@ jobs:
         run: |
           ls "${{ runner.temp }}/qt/Qt/${{ inputs.qt_version }}" || ls "${{ runner.temp }}/qt/${{ inputs.qt_version }}"
 
+      - name: Make owl text file optional (it is not in the repo)
+        run: |
+          python3 - <<'PY'
+          #!/usr/bin/env python3
+          """Make the optional owl-prompt text file (use.gmsg) optional in the Android setup.
+          That file is derived from game text and is not in the repository, so the APK
+          cannot bundle it. Without it, only Classic saving / Classic Double Time wording
+          is unavailable; both are off by default."""
+          import sys
+          from pathlib import Path
+
+          path = Path("src/android/app/src/main/java/org/citra/citra_emu/utils/DekuiGameSetup.kt")
+          s = path.read_text()
+          old1 = '''            context.assets.open("dekui-setup/project-restoration/romfs/message/us/use.gmsg").use {
+                          owl.parentFile!!.mkdirs(); owl.outputStream().use { out -> it.copyTo(out) }
+                      }
+          '''
+          new1 = '''            val hasOwl = try {
+                          context.assets.open("dekui-setup/project-restoration/romfs/message/us/use.gmsg").use {
+                              owl.parentFile!!.mkdirs(); owl.outputStream().use { out -> it.copyTo(out) }
+                          }
+                          true
+                      } catch (_: java.io.FileNotFoundException) { false }
+          '''
+          old2 = "if (!existingOwl.isFile) {"
+          new2 = "if (hasOwl && !existingOwl.isFile) {"
+          if "val hasOwl" in s:
+              print("already patched"); sys.exit(0)
+          assert s.count(old1) == 1 and s.count(old2) == 1, "source changed; patch does not apply"
+          path.write_text(s.replace(old1, new1).replace(old2, new2))
+          print("patched", path)
+          PY
+
       - name: Build APK
         working-directory: src/android
         run: |
